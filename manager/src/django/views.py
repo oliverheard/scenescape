@@ -9,8 +9,6 @@ import time
 import pprint
 from pathlib import Path
 from collections import namedtuple
-from uuid import UUID
-import zipfile
 
 from django.conf import settings
 from django.contrib.admin.views.decorators import user_passes_test

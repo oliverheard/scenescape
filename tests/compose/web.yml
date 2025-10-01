@@ -45,8 +45,10 @@ services:
       - apparmor:unconfined
     # web interface needs access to the media files
     volumes:
-      - ./:/workspace
-      - vol-media:/home/scenescape/SceneScape/media
+      - ./tests/testdb.tar.bz2:/home/scenescape/SceneScape/tests/testdb.tar.bz2
+      - ./${DBROOT}/media:/workspace/${DBROOT}/media
+      - vol-sample-data:/home/scenescape/SceneScape/sample_data
+      - vol-migrations:/workspace/migrations
     secrets:
       - source: root-cert
         target: certs/scenescape-ca.pem

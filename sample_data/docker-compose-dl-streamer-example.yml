@@ -58,13 +58,13 @@ services:
     pids_limit: 1000
 
   pgserver:
-    image: scenescape-manager:${VERSION:-latest}
-    init: true
+    image: postgres:17.6
+    environment:
+      POSTGRES_USER: scenescape
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: scenescape
     networks:
       scenescape:
-    environment:
-      - "SUPASS"
-      - "DBROOT"
     command: database --preloadexample
     cap_add:
       - SYS_ADMIN
