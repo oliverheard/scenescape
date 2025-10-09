@@ -34,6 +34,7 @@ from scene_common.scene_model import SceneModel as ScenescapeScene
 from scene_common.scenescape import SceneLoader
 from scene_common.timestamp import get_epoch_time
 from manager.validators import validate_map_file, validate_glb, validate_map_corners_lla
+from manager.fields import ListField
 
 from scene_common import log
 
@@ -101,6 +102,7 @@ class Scene(models.Model):
                                         validate_map_file])
   scale = models.FloatField("Pixels per meter", default=None, null=True, blank=True,
                             validators=[MinValueValidator(np.nextafter(0, 1))])
+  use_tracker = models.BooleanField("Use tracker", choices=BOOLEAN_CHOICES, default=True, blank=True)
   rotation_x = models.FloatField("X Rotation (degrees)", default=0.0, null=True, blank=False)
   rotation_y = models.FloatField("Y Rotation (degrees)", default=0.0, null=True, blank=False)
   rotation_z = models.FloatField("Z Rotation (degrees)", default=0.0, null=True, blank=False)
@@ -122,6 +124,11 @@ class Scene(models.Model):
                                         "Required only if 'Output geospatial coordinates' is set to `Yes`.\n"
                                         "Expected order: starting from the bottom-left corner counterclockwise.\nExpected JSON format: "
                                         "'[ [lat1, lon1, alt1], [lat2, lon2, alt2], [lat3, lon3, alt3], [lat4, lon4, alt4] ]'"))
+  trs_matrix = models.JSONField(
+    "Transformation matrix (Translation, Rotation, Scale) coordinates to LLA (Latitude, Longitude, Altitude)",
+    default=None, null=True, blank=True, editable=False,
+    help_text="4x4 transformation matrix (translation-rotation-scale) stored as JSON [[...], [...], [...], [...]]"
+  )
   camera_calibration = models.CharField("Calibration Type", max_length=20, choices=CALIBRATION_CHOICES, default=MANUAL)
   polycam_data = models.FileField(blank=True, null=True, validators=[FileExtensionValidator(["zip"])])
   dataset_dir = models.CharField(blank=True, max_length=200, editable=False)
@@ -317,6 +324,7 @@ class Scene(models.Model):
     mScene = SceneLoader.sceneWithName(self.name)
     if not mScene:
       mScene = ScenescapeScene(self.name, self.map.path if self.map else None, self.scale)
+      mScene.use_tracker = self.use_tracker
       mScene.output_lla = self.output_lla
       mScene.map_corners_lla = self.map_corners_lla
       mScene.mesh_translation = [self.translation_x, self.translation_y, self.translation_z]
@@ -525,7 +533,7 @@ class PubSubACL(models.Model):
 class CalibrationMarker(models.Model):
   marker_id = models.CharField(max_length=50, primary_key=True)
   apriltag_id = models.CharField(max_length=10)
-  dims = ArrayField(models.FloatField())
+  dims = ListField(default=list)
   scene = models.ForeignKey(Scene, on_delete=models.CASCADE)
 
   def __str__(self):
@@ -592,18 +600,13 @@ class Cam(Sensor):
 
   command = models.CharField(default=None, max_length=512, null=True,
                              verbose_name="Camera (Video Source)")
-  camerachain = models.CharField(default=None, max_length=64, null=True)
+  camerachain = models.CharField(default=None, max_length=64, null=True, verbose_name="Camera Chain")
   threshold = models.FloatField(default=None, null=True, blank=True)
   aspect = models.CharField(default=None, max_length=64, null=True, blank=True)
   cv_subsystem = models.CharField(default=None, max_length=64, null=True, blank=True,
-                                  verbose_name="CV Subsystem")
+                                  verbose_name="Decode Device")
 
-  # Workaround due to unit tests using a sqlite3 database
-  if settings.DATABASES['default']['ENGINE'] == 'django.db.backends.sqlite3':
-    transforms = models.JSONField(blank=True, default=list)
-  else:
-    transforms = ArrayField(models.FloatField(blank=True, default=None, null=True),
-                            blank=True, default=list)
+  transforms = ListField(blank=True, default=list)
   transform_type = models.CharField(max_length=26, choices=CAM_TRANSFORM_CHOICES,
                                     default=POINT_CORRESPONDENCE)
   width = models.IntegerField(default=640, null=False, blank=False)
@@ -638,7 +641,7 @@ class Cam(Sensor):
   preprocess = models.BooleanField(default=False)
   realtime = models.BooleanField(default=False)
   faketime = models.BooleanField(default=False)
-  modelconfig = models.CharField(max_length=512, null=True, blank=True)
+  modelconfig = models.CharField(max_length=512, null=True, blank=True, verbose_name="Model Config")
   rootcert = models.CharField(max_length=64, null=True, blank=True)
   cert = models.CharField(max_length=64, null=True, blank=True)
   cvcores = models.IntegerField(null=True, blank=True)
@@ -651,6 +654,8 @@ class Cam(Sensor):
                                     default=NONE)
   disable_rotation = models.BooleanField(default=False)
   maxdistance = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0.001)])
+  camera_pipeline = models.TextField(max_length=5000, null=True, blank=True,
+                                     help_text="Suggested camera pipeline string in gst-launch-1.0 syntax which will be applied in camera VA pipeline once Save button is clicked. Please review and/or adjust it before applying.")
 
   @property
   def transformation(self):
@@ -729,7 +734,8 @@ class Cam(Sensor):
       'maxcache': self.maxcache,
       'filter': self.filter,
       'disable_rotation': self.disable_rotation,
-      'maxdistance': self.maxdistance
+      'maxdistance': self.maxdistance,
+      'camera_pipeline': self.camera_pipeline
     }
     return camera_data
 
@@ -742,6 +748,7 @@ class Cam(Sensor):
       self.intrinsics_fx = self.DEFAULT_INTRINSICS['fx']
     if self.intrinsics_fy is None:
       self.intrinsics_fy = self.DEFAULT_INTRINSICS['fy']
+
     super().save(*args, **kwargs)
     transaction.on_commit(partial(sendUpdateCommand,
                                   camera_data = self.cameraData('save')))
@@ -752,6 +759,7 @@ class Cam(Sensor):
     transaction.on_commit(partial(sendUpdateCommand,
                                   camera_data = self.cameraData('delete')))
     return
+
 
 class SingletonSensor(Sensor):
   map_x = models.FloatField(default=None, null=True, blank=True)

@@ -19,13 +19,20 @@ spec:
         app: {{ .Release.Name }}-kubeclient
     spec:
       shareProcessNamespace: true
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
       initContainers:
       - name: wait-for-broker-initcontainer
         image: busybox
         command: ["/bin/sh", "-c", "until nc -vz broker.{{ .Release.Namespace }}.svc.cluster.local 1883; do sleep 1; done"]
+        securityContext:
+          {{ include "defaultContainerSecurityContext" . | indent 10 }}
       - name: wait-for-web-initcontainer
         image: busybox
         command: ["/bin/sh", "-c", "until wget -q --spider http://web.{{ .Release.Namespace }}.svc.cluster.local; do sleep 1; done"]
+        securityContext:
+          {{ include "defaultContainerSecurityContext" . | indent 10 }}
       containers:
         - args:
           - ./manage.py
@@ -37,40 +44,29 @@ spec:
           - --ntp
           - ntpserv.{{ .Release.Namespace }}.svc.cluster.local
           - --auth
-          - /run/secrets/controller.auth
+          - /run/secrets/auth/controller.auth
           image: {{ .Values.repository }}/{{ .Values.kubeclient.image }}:{{ .Chart.AppVersion }}
           name: {{ .Release.Name }}-kubeclient
           env:
+          - name: MODEL_CONFIGS_FOLDER
+            value: "/data/models/model_configs"
           - name: KUBERNETES_NAMESPACE
             value: {{ .Release.Namespace }}
           - name: HELM_RELEASE
             value: {{ .Release.Name }}
           - name: HELM_REPO
-            value: {{ .Values.repository }}
+            value: {{ .Values.kubeclient.vaPipeline.repository }}
           - name: HELM_IMAGE
-            value: {{ .Values.camera.image }}
+            value: {{ .Values.kubeclient.vaPipeline.image }}
           - name: HELM_TAG
-            value: {{ .Chart.AppVersion | quote }}
+            value: {{ .Values.kubeclient.vaPipeline.tag }}
           {{- with .Values.imagePullSecrets }}
           {{- range $index, $pullSecret := . }}
           - name: KUBERNETES_PULL_SECRET_{{ $index }}
             value: {{ $pullSecret.name | quote }}
           {{- end }}
           {{- end }}
-{{- if .Values.proxy.enabled }}
-          - name: HTTP_PROXY
-            value: {{ .Values.proxy.httpProxy }}
-          - name: HTTPS_PROXY
-            value: {{ .Values.proxy.httpsProxy }}
-          - name: NO_PROXY
-            value: {{ .Values.proxy.noProxy }}
-          - name: http_proxy
-            value: {{ .Values.proxy.httpProxy }}
-          - name: https_proxy
-            value: {{ .Values.proxy.httpsProxy }}
-          - name: no_proxy
-            value: {{ .Values.proxy.noProxy }}
-{{- end }}
+          {{ include "proxy_envs" . | indent 10 }}
           imagePullPolicy: Always
           readinessProbe:
             exec:
@@ -79,12 +75,22 @@ spec:
               - /tmp/healthy
             periodSeconds: 1
           resources: {}
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
           volumeMounts:
           - mountPath: /run/secrets/certs
             name: certs
             readOnly: true
           - mountPath: /run/secrets/django
             name: django
+            readOnly: true
+          - mountPath: /run/secrets/auth
+            name: auth
+            readOnly: true
+          - mountPath: /data
+            name: models-storage
             readOnly: true
       restartPolicy: Always
       {{- with .Values.imagePullSecrets }}
@@ -99,6 +105,12 @@ spec:
       - name: django
         secret:
           secretName: {{ .Release.Name }}-django
+      - name: auth
+        secret:
+          secretName: {{ .Release.Name }}-controller.auth
+      - name: models-storage
+        persistentVolumeClaim:
+          claimName: {{ .Release.Name }}-models-pvc
 status: {}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -109,6 +121,9 @@ metadata:
 rules:
 - apiGroups: ["apps"]
   resources: ["deployments"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: [""]
+  resources: ["configmaps"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

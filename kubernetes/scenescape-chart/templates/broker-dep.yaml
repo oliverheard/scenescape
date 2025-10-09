@@ -18,18 +18,14 @@ spec:
       labels:
         app: {{ .Release.Name }}-broker
     spec:
+      securityContext:
+        runAsUser: {{ .Values.broker.uid }}
+        runAsGroup: {{ .Values.broker.gid }}
       containers:
         - name: broker
           image: {{ .Values.broker.image }}:{{ .Values.broker.tag }}
-{{ if .Values.proxy.enabled }}
           env:
-            - name: http_proxy
-              value: {{ .Values.proxy.http_proxy | quote }}
-            - name: https_proxy
-              value: {{ .Values.proxy.https_proxy | quote }}
-            - name: no_proxy
-              value: {{ .Values.proxy.no_proxy | quote }}
-{{ end }}
+            {{ include "proxy_envs" . | indent 12 }}
           ports:
             - containerPort: 1883
             - containerPort: 1884
@@ -40,8 +36,12 @@ spec:
               mountPath: /mosquitto/secrets/certs
           command: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto-secure.conf"]
           securityContext:
-            runAsUser: {{ .Values.broker.uid }}
-            runAsGroup: {{ .Values.broker.gid }}
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
       volumes:
         - name: config-volume
           configMap:

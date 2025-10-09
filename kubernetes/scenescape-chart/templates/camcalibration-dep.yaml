@@ -20,10 +20,17 @@ spec:
         app: {{ .Release.Name }}-camcalibration
     spec:
       shareProcessNamespace: true
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
       initContainers:
         - name: wait-for-web-initcontainer
           image: busybox
           command: ["/bin/sh", "-c", "until wget -q --spider http://web.{{ .Release.Namespace }}.svc.cluster.local; do sleep 1; done"]
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+            {{ include "defaultContainerSecurityContext" . | indent 12 }}
       containers:
         - args:
           - camcalibration
@@ -36,20 +43,7 @@ spec:
           env:
           - name: EGL_PLATFORM
             value: surfaceless
-{{- if .Values.proxy.enabled }}
-          - name: HTTP_PROXY
-            value: {{ .Values.proxy.httpProxy }}
-          - name: HTTPS_PROXY
-            value: {{ .Values.proxy.httpsProxy }}
-          - name: NO_PROXY
-            value: {{ .Values.proxy.noProxy }}
-          - name: http_proxy
-            value: {{ .Values.proxy.httpProxy }}
-          - name: https_proxy
-            value: {{ .Values.proxy.httpsProxy }}
-          - name: no_proxy
-            value: {{ .Values.proxy.noProxy }}
-{{- end }}
+          {{ include "proxy_envs" . | indent 10 }}
           imagePullPolicy: Always
           securityContext:
             privileged: true

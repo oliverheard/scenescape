@@ -18,6 +18,9 @@ spec:
         app: {{ .Release.Name }}-ntpserv
     spec:
       shareProcessNamespace: true
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
       initContainers:
         - command:
           - sh
@@ -27,6 +30,7 @@ spec:
           name: init-healthy-file
           securityContext:
             readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
           volumeMounts:
           - name: healthy-file
             mountPath: /tmp
@@ -36,22 +40,10 @@ spec:
           env:
           - name: NTP_SERVERS
             value: {{ .Values.ntpserv.ntpServers }}
-{{- if .Values.proxy.enabled }}
-          - name: HTTP_PROXY
-            value: {{ .Values.proxy.httpProxy }}
-          - name: HTTPS_PROXY
-            value: {{ .Values.proxy.httpsProxy }}
-          - name: NO_PROXY
-            value: {{ .Values.proxy.noProxy }}
-          - name: http_proxy
-            value: {{ .Values.proxy.httpProxy }}
-          - name: https_proxy
-            value: {{ .Values.proxy.httpsProxy }}
-          - name: no_proxy
-            value: {{ .Values.proxy.noProxy }}
-{{- end }}
+            {{ include "proxy_envs" . | indent 10 }}
           imagePullPolicy: Always
           securityContext:
+            allowPrivilegeEscalation: false
             capabilities:
               drop:
                 - ALL

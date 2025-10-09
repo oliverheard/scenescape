@@ -21,10 +21,20 @@ services:
       - "8554:8554"
     devices:
       - "/dev/dri:/dev/dri"
+    group_add:
+      - "109"
+      - "110"
+      - "992"
+    device_cgroup_rules:
+      - "c 189:* rmw"
+      - "c 209:* rmw"
+      - "a 189:* rwm"
     depends_on:
       broker:
         condition: service_started
       ntpserv:
+        condition: service_started
+      retail-cams:
         condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-I", "-s", "http://localhost:8080/pipelines"]
@@ -48,8 +58,6 @@ services:
     configs:
       - source: retail-config
         target: /home/pipeline-server/config.json
-      - source: person-detection-retail-config
-        target: /home/pipeline-server/models/object_detection/person/person-detection-retail-0013.json
     volumes:
       - ./:/workspace
       - ./dlstreamer-pipeline-server/user_scripts:/home/pipeline-server/user_scripts
@@ -64,8 +72,6 @@ services:
 configs:
   retail-config:
     file: ./dlstreamer-pipeline-server/retail-config.json
-  person-detection-retail-config:
-    file: ./dlstreamer-pipeline-server/model-proc-files/person-detection-retail-0013.json
 
 volumes:
   vol-models:
